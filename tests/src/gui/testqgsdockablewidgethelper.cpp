@@ -43,6 +43,9 @@ class TestQgsDockableWidgetHelper : public QObject
     void testXmlSerialization();
     void testReject();
     void testSettingKeyDockId();
+    void testDialogHasNoParent();
+    void testDialogWindowType();
+    void testDialogGeometryRestore();
 
   private:
 };
@@ -291,6 +294,63 @@ void TestQgsDockableWidgetHelper::testSettingKeyDockId()
   QgsDockableWidgetHelper helper( u"Test"_s, &w, &mw, QString(), QStringList(), Qgis::DockableWidgetInitialState::ForceDocked );
   helper.setSettingKeyDockId( u"mySettingKey"_s );
   QCOMPARE( helper.mSettingKeyDockId, u"mySettingKey"_s );
+}
+
+void TestQgsDockableWidgetHelper::testDialogHasNoParent()
+{
+  QMainWindow mw;
+  QWidget w;
+
+  // the dialog must have no Qt parent, so it keeps its own taskbar entry (#49286)
+  QgsDockableWidgetHelper helper( u"Test Dialog"_s, &w, &mw, QString(), QStringList(), Qgis::DockableWidgetInitialState::ForceDialog );
+  QVERIFY( helper.dialog() );
+  QCOMPARE( helper.dialog()->parent(), nullptr );
+
+  // also check after toggling dock mode and back
+  helper.toggleDockMode( true );
+  QVERIFY( !helper.dialog() );
+  helper.toggleDockMode( false );
+  QVERIFY( helper.dialog() );
+  QCOMPARE( helper.dialog()->parent(), nullptr );
+}
+
+void TestQgsDockableWidgetHelper::testDialogWindowType()
+{
+  QMainWindow mw;
+  QWidget w;
+
+  // must be a Qt::Dialog (not Qt::Window) so the WM keeps it above the main window (#66817)
+  QgsDockableWidgetHelper helper( u"Test Dialog"_s, &w, &mw, QString(), QStringList(), Qgis::DockableWidgetInitialState::ForceDialog );
+  QVERIFY( helper.dialog() );
+  QVERIFY( helper.dialog()->windowFlags().testFlag( Qt::Dialog ) );
+}
+
+void TestQgsDockableWidgetHelper::testDialogGeometryRestore()
+{
+  // dialog geometry must survive being saved and restored under the same key (#66746)
+  QMainWindow mw;
+  mw.show();
+
+  const QString settingsKey = u"TestGeometryRestoreKey"_s;
+  const QRect targetGeometry( 123, 145, 567, 389 );
+
+  {
+    QWidget w;
+    QgsDockableWidgetHelper helper( u"Geometry Test"_s, &w, &mw, settingsKey, QStringList(), Qgis::DockableWidgetInitialState::ForceDialog );
+    QVERIFY( helper.dialog() );
+    helper.dialog()->setGeometry( targetGeometry );
+    QCoreApplication::processEvents();
+  }
+
+  {
+    QWidget w2;
+    QgsDockableWidgetHelper helper2( u"Geometry Test"_s, &w2, &mw, settingsKey, QStringList(), Qgis::DockableWidgetInitialState::ForceDialog );
+    QVERIFY( helper2.dialog() );
+    QCoreApplication::processEvents();
+
+    // size must be restored (position may be adjusted by the WM)
+    QCOMPARE( helper2.dialog()->size(), targetGeometry.size() );
+  }
 }
 
 QGSTEST_MAIN( TestQgsDockableWidgetHelper )
